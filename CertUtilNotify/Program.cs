@@ -1,6 +1,7 @@
 using CertUtilNotify.Method;
 using CertUtilNotify.Model;
 using Microsoft.Extensions.Configuration;
+using System.Text;
 using System.Text.Json;
 
 namespace CertUtilNotify
@@ -11,11 +12,14 @@ namespace CertUtilNotify
 		public static readonly string DateTimeFilenameFormat = "yyyy-MM-dd_HHmmss";
 		public static readonly string DateFormat = "yyyy-MM-dd";
 		public static readonly string DateTimeFormat = "yyyy-MM-dd HH:mm:ss";
+		public static readonly string DateTimeOpenSslFormat = "MMM d HH:mm:ss yyyy 'GMT'";
 
 		public static readonly string AppSettingsFile = "appsettings.json";
 		public static IConfigurationRoot AppSettings;
 
 		public static string LogsDirectory;
+		public static string OpenSSLPath;
+		public static List<string> Domains = new List<string>();
 		public static int DaysToWarnExpire;
 		public static int DaysToNotifyNew;
 		public static string EmailSubject;
@@ -56,6 +60,15 @@ namespace CertUtilNotify
 					appSettingsJson.AddJsonFile(AppSettingsFile, optional: false, reloadOnChange: true);
 					AppSettings = appSettingsJson.Build();
 					LogsDirectory = AppSettings.GetSection("LogsDirectory").Value;
+					OpenSSLPath = AppSettings.GetSection("OpenSSLPath").Value;
+					Domains = new List<string>();
+					foreach (IConfigurationSection domain in AppSettings.GetSection("Domains").GetChildren())
+					{
+						if (!string.IsNullOrWhiteSpace(domain.Value))
+						{
+							Domains.Add(domain.Value.Trim());
+						}
+					}
 					DaysToWarnExpire = int.Parse(AppSettings.GetSection("DaysToWarnExpire").Value);
 					DaysToNotifyNew = int.Parse(AppSettings.GetSection("DaysToNotifyNew").Value);
 					EmailSubject = AppSettings.GetSection("EmailSubject").Value;
@@ -73,33 +86,33 @@ namespace CertUtilNotify
 				}
 			}
 
+			StartLog();
+
 			Console.WriteLine(string.Concat("Populating HashSet<CertUtilModel>"));
 			HashSet <CertUtilModel> certUtilSet = new HashSet<CertUtilModel>();
 			certUtilSet = CertUtil.Query("My");
+
+			Console.WriteLine(string.Concat("Populating HashSet<OpenSslModel>"));
+			HashSet<OpenSslModel> openSslSet = new HashSet<OpenSslModel>();
+			foreach (string domain in Domains)
+			{
+				Console.WriteLine("Query " + domain);
+				foreach (OpenSslModel remoteCert in OpenSslUtil.Query(domain))
+				{
+					openSslSet.Add(remoteCert);
+				}
+			}
 
 			bool notify = false;
 			DateTime now = DateTime.UtcNow;
 			string message = EmailSubject + " " + now.ToString(DateFormat) + "." + nl + nl;
 			foreach (CertUtilModel c in certUtilSet)
 			{
-				if (c.NotAfter < now.AddDays(DaysToWarnExpire) && c.NotAfter > now)
-				{
-					notify = true;
-					message = message + "-------- Expiring --------" + nl;
-					message = message + c.Subject2_CN + " expires on " + c.NotAfter.ToString(DateFormat) + "." + nl;
-					message = message + (c.NotAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
-					message = message + "Thumbprint " + c.Thumbprint + nl;
-					message = message + nl;
-				}
-
-				if (c.NotBefore > now.AddDays(DaysToNotifyNew*-1) && c.NotBefore < now)
-				{
-					message = message + "-------- New --------" + nl;
-					message = message + c.Subject2_CN + " issued on " + c.NotBefore.ToString(DateFormat) + "." + nl;
-					message = message + (c.NotAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
-					message = message + "Thumbprint " + c.Thumbprint + nl;
-					message = message + nl;
-				}
+				AppendCertificateNotice(ref message, ref notify, now, c.Subject2_CN, c.NotBefore, c.NotAfter, c.Thumbprint);
+			}
+			foreach (OpenSslModel c in openSslSet)
+			{
+				AppendCertificateNotice(ref message, ref notify, now, c.NoticeName(), c.NotBefore, c.NotAfter, c.Thumbprint);
 			}
 
 			if (notify)
@@ -116,6 +129,105 @@ namespace CertUtilNotify
 					smtpPort: SMTP_Port,
 					body: message
 				);
+			}
+		}
+
+		static void StartLog()
+		{
+			try
+			{
+				if (string.IsNullOrWhiteSpace(LogsDirectory))
+				{
+					Console.WriteLine("LogsDirectory is not set. Logging to the console only.");
+					return;
+				}
+
+				Directory.CreateDirectory(LogsDirectory);
+				string logFile = Path.Combine(LogsDirectory, DateTime.Now.ToString(DateTimeFilenameFormat) + ".log");
+				StreamWriter file = new StreamWriter(logFile, append: false);
+				file.AutoFlush = true;
+				Console.SetOut(new TeeTextWriter(Console.Out, file));
+				Console.WriteLine("Log file " + logFile);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine("Could not open the log file: " + ex.Message + nl + ex.StackTrace);
+			}
+		}
+
+		static void AppendCertificateNotice(
+			ref string message,
+			ref bool notify,
+			DateTime now,
+			string? name,
+			DateTime notBefore,
+			DateTime notAfter,
+			string? thumbprint)
+		{
+			if (notAfter < now.AddDays(DaysToWarnExpire) && notAfter > now)
+			{
+				notify = true;
+				message = message + "-------- Expiring --------" + nl;
+				message = message + name + " expires on " + notAfter.ToString(DateFormat) + "." + nl;
+				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
+				message = message + "Thumbprint " + thumbprint + nl;
+				message = message + nl;
+			}
+
+			if (notBefore > now.AddDays(DaysToNotifyNew * -1) && notBefore < now)
+			{
+				message = message + "-------- New --------" + nl;
+				message = message + name + " issued on " + notBefore.ToString(DateFormat) + "." + nl;
+				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
+				message = message + "Thumbprint " + thumbprint + nl;
+				message = message + nl;
+			}
+		}
+
+		sealed class TeeTextWriter : TextWriter
+		{
+			readonly TextWriter console;
+			readonly TextWriter file;
+
+			internal TeeTextWriter(TextWriter console, TextWriter file)
+			{
+				this.console = console;
+				this.file = file;
+			}
+
+			public override Encoding Encoding
+			{
+				get { return console.Encoding; }
+			}
+
+			public override void Write(char value)
+			{
+				console.Write(value);
+				file.Write(value);
+			}
+
+			public override void Write(string? value)
+			{
+				console.Write(value);
+				file.Write(value);
+			}
+
+			public override void Write(char[] buffer, int index, int count)
+			{
+				console.Write(buffer, index, count);
+				file.Write(buffer, index, count);
+			}
+
+			public override void WriteLine(string? value)
+			{
+				console.WriteLine(value);
+				file.WriteLine(value);
+			}
+
+			public override void Flush()
+			{
+				console.Flush();
+				file.Flush();
 			}
 		}
 	}

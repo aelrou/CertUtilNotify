@@ -3,6 +3,9 @@
 	class AppSettingsModel
 	{
 		public string LogsDirectory { get; set; } = "C:\\Users\\Public\\CertutilNotify\\Logs";
+		
+		public string OpenSSLPath { get; set; } = "C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe";
+		public List<string> Domains { get; set; } = new List<string> { "www.google.com", "www.cloudflare.com" };
 		public int DaysToWarnExpire { get; set; } = 3;
 		public int DaysToNotifyNew { get; set; } = 2;
 		public string EmailSubject { get; set; } = "MyServer security certificate status";
