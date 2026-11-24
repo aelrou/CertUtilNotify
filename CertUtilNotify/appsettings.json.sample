@@ -35,7 +35,6 @@
 		"uic-test-ohio.goldsystems.com"
 	],
 	"DaysToWarnExpire": 3,
-	"DaysToNotifyNew": 2,
 	"EmailSubject": "MyServer security certificate status",
 	"ToAddressList": "recipient1@address.com,recipient2@address.com",
 	"SMTP_Host": "smtp.server.com",

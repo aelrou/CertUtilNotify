@@ -22,7 +22,6 @@ namespace CertUtilNotify
 		public static string OpenSSLPath;
 		public static List<string> Domains = new List<string>();
 		public static int DaysToWarnExpire;
-		public static int DaysToNotifyNew;
 		public static string EmailSubject;
 		public static string ToAddressList;
 		public static string SMTP_Host;
@@ -71,7 +70,6 @@ namespace CertUtilNotify
 						}
 					}
 					DaysToWarnExpire = int.Parse(AppSettings.GetSection("DaysToWarnExpire").Value);
-					DaysToNotifyNew = int.Parse(AppSettings.GetSection("DaysToNotifyNew").Value);
 					EmailSubject = AppSettings.GetSection("EmailSubject").Value;
 					ToAddressList = AppSettings.GetSection("ToAddressList").Value;
 					SMTP_Host = AppSettings.GetSection("SMTP_Host").Value;
