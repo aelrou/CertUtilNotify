@@ -128,14 +128,15 @@ namespace CertUtilNotify
 			string message = EmailSubject + " " + now.ToString(DateFormat) + "." + nl + nl;
 			foreach (CertUtilModel c in certUtilSet)
 			{
-				AppendCertificateNotice(ref message, ref notify, now, c.Subject2_CN, c.NotBefore, c.NotAfter, c.Thumbprint);
+				AppendCertificateNotice(ref message, ref notify, now, c.Subject2_CN, c.NotAfter, c.Thumbprint, HistoryAction.Skipped);
 			}
 			foreach (OpenSslModel c in openSslSet)
 			{
+				HistoryAction previous = LatestDomainAction(historyDocument, c.Domain);
 				HistoryModel history = new HistoryModel();
 				history.Domain = c.Domain;
 				history.Expiration = c.NotAfter;
-				history.Action = AppendCertificateNotice(ref message, ref notify, now, c.NoticeName(), c.NotBefore, c.NotAfter, c.Thumbprint);
+				history.Action = AppendCertificateNotice(ref message, ref notify, now, c.NoticeName(), c.NotAfter, c.Thumbprint, previous);
 				session.Entries.Add(history);
 			}
 
@@ -208,43 +209,82 @@ namespace CertUtilNotify
 			}
 		}
 
+		static HistoryAction LatestDomainAction(HistoryListModel history, string? domain)
+		{
+			if (string.IsNullOrWhiteSpace(domain) || history.HistoryList == null)
+			{
+				return HistoryAction.Skipped;
+			}
+
+			bool found = false;
+			DateTime newestStarted = DateTime.MinValue;
+			string newestKey = "";
+			HistoryAction newestAction = HistoryAction.Skipped;
+			foreach (KeyValuePair<string, HistorySession> entry in history.HistoryList)
+			{
+				if (entry.Value == null || entry.Value.Entries == null)
+				{
+					continue;
+				}
+
+				HistoryAction? entryAction = null;
+				foreach (HistoryModel item in entry.Value.Entries)
+				{
+					if (string.Equals(item.Domain, domain, StringComparison.OrdinalIgnoreCase))
+					{
+						entryAction = item.Action;
+					}
+				}
+				if (entryAction == null)
+				{
+					continue;
+				}
+
+				DateTime started = entry.Value.StartedAt;
+				if (!found || started > newestStarted || (started == newestStarted && string.CompareOrdinal(entry.Key, newestKey) > 0))
+				{
+					found = true;
+					newestStarted = started;
+					newestKey = entry.Key;
+					newestAction = entryAction.Value;
+				}
+			}
+			return newestAction;
+		}
+
 		static HistoryAction AppendCertificateNotice(
 			ref string message,
 			ref bool notify,
 			DateTime now,
 			string? name,
-			DateTime notBefore,
 			DateTime notAfter,
-			string? thumbprint)
+			string? thumbprint,
+			HistoryAction previousAction)
 		{
-			HistoryAction action = HistoryAction.Skipped;
 			if (notAfter < now.AddDays(DaysToWarnExpire) && notAfter > now)
 			{
 				notify = true;
-				action = HistoryAction.ExpirationNotice;
 				message = message + "-------- Expiring --------" + nl;
 				message = message + name + " expires on " + notAfter.ToString(DateFormat) + "." + nl;
 				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
 				message = message + "Thumbprint " + thumbprint + nl;
 				message = message + nl;
-
-
+				return HistoryAction.ExpirationNotice;
 			}
 
-			if (notBefore > now.AddDays(DaysToNotifyNew * -1) && notBefore < now)
+			// The previous run warned that this domain was inside the window. It has since moved past that window.
+			if (previousAction == HistoryAction.ExpirationNotice && notAfter >= now.AddDays(DaysToWarnExpire))
 			{
-				// A certificate inside both windows keeps ExpirationNotice. That branch is what sends mail.
-				if (action == HistoryAction.Skipped)
-				{
-					action = HistoryAction.RenewalNotice;
-				}
-				message = message + "-------- New --------" + nl;
-				message = message + name + " issued on " + notBefore.ToString(DateFormat) + "." + nl;
+				notify = true;
+				message = message + "-------- Renewed --------" + nl;
+				message = message + name + " was renewed and expires on " + notAfter.ToString(DateFormat) + "." + nl;
 				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
 				message = message + "Thumbprint " + thumbprint + nl;
 				message = message + nl;
+				return HistoryAction.RenewalNotice;
 			}
-			return action;
+
+			return HistoryAction.Skipped;
 		}
 
 		sealed class TeeTextWriter : TextWriter
