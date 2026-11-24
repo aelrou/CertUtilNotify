@@ -38,9 +38,9 @@
 	"DaysToNotifyNew": 2,
 	"EmailSubject": "MyServer security certificate status",
 	"ToAddressList": "recipient1@address.com,recipient2@address.com",
+	"SMTP_Host": "smtp.server.com",
+	"SMTP_Port": 587,
 	"FromAddress": "sender@address.com",
 	"SMTP_Username": "sender@address.com",
-	"SMTP_Password": "password",
-	"SMTP_Host": "smtp.server.com",
-	"SMTP_Port": 587
+	"SMTP_Password": "password"
 }

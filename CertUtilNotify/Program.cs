@@ -16,7 +16,7 @@ namespace CertUtilNotify
 		public static readonly string DateTimeOpenSslFormat = "MMM d HH:mm:ss yyyy 'GMT'";
 
 		public static readonly string AppSettingsFile = "appsettings.json";
-		public static readonly string AppHistoryFile = "AppHistory.json";
+		public static readonly string AppHistoryFile = "apphistory.json";
 		public static IConfigurationRoot AppSettings;
 
 		public static string LogsDirectory;
@@ -88,72 +88,12 @@ namespace CertUtilNotify
 				}
 			}
 
+			StartLog();
+
 			HistorySession session = new HistorySession();
 			session.StartedAt = DateTime.UtcNow;
 
-			HistoryModel history = new HistoryModel();
-			history.Domain = "www.google.com";
-			history.Expiration = DateTime.UtcNow.AddDays(50);
-			history.Action = HistoryAction.Skipped;
-			session.Entries.Add(history);
-
-			HistoryModel history2 = new HistoryModel();
-			history2.Domain = "www.cloudflare.com";
-			history2.Expiration = DateTime.UtcNow.AddDays(60);
-			history2.Action = HistoryAction.Skipped;
-			session.Entries.Add(history2);
-
-			HistoryModel history3 = new HistoryModel();
-			history3.Domain = "www.microsoft.com";
-			history3.Expiration = DateTime.UtcNow.AddDays(70);
-			history3.Action = HistoryAction.Skipped;
-			session.Entries.Add(history3);
-
-			HistoryListModel historyDocument;
-			bool saveHistory = true;
-			try
-			{
-				historyDocument = HistoryListModel.Load(AppHistoryFile);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine(ex.Message + nl + ex.StackTrace);
-				historyDocument = new HistoryListModel();
-				saveHistory = false;
-			}
-
-			historyDocument.Add(session);
-			if (saveHistory)
-			{
-				try
-				{
-					historyDocument.Save(AppHistoryFile);
-				}
-				catch (Exception ex)
-				{
-					Console.WriteLine(ex.Message + nl + ex.StackTrace);
-				}
-			}
-
-			foreach (KeyValuePair<string, HistorySession> entry in historyDocument.HistoryList)
-			{
-				if (entry.Value == null)
-				{
-					continue;
-				}
-				foreach (HistoryModel item in entry.Value.Entries)
-				{
-					Console.WriteLine(entry.Key);
-					Console.WriteLine(entry.Value.StartedAt.ToString(DateTimeFormat));
-					Console.WriteLine(item.Domain);
-					Console.WriteLine(item.Expiration.ToString(DateTimeFormat));
-					Console.WriteLine(item.Action.ToString());
-				}
-			}
-
-			Environment.Exit(0); // Remove this line to enable the program to run. It is here to prevent accidental email sending during testing.
-
-			StartLog();
+			//Environment.Exit(0);
 
 			Console.WriteLine(string.Concat("Populating HashSet<CertUtilModel>"));
 			HashSet <CertUtilModel> certUtilSet = new HashSet<CertUtilModel>();
@@ -170,6 +110,19 @@ namespace CertUtilNotify
 				}
 			}
 
+			HistoryListModel historyDocument;
+			bool saveHistory = true;
+			try
+			{
+				historyDocument = HistoryListModel.Load(AppHistoryFile);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine(ex.Message + nl + ex.StackTrace);
+				historyDocument = new HistoryListModel();
+				saveHistory = false;
+			}
+
 			bool notify = false;
 			DateTime now = DateTime.UtcNow;
 			string message = EmailSubject + " " + now.ToString(DateFormat) + "." + nl + nl;
@@ -179,8 +132,41 @@ namespace CertUtilNotify
 			}
 			foreach (OpenSslModel c in openSslSet)
 			{
-				AppendCertificateNotice(ref message, ref notify, now, c.NoticeName(), c.NotBefore, c.NotAfter, c.Thumbprint);
+				HistoryModel history = new HistoryModel();
+				history.Domain = c.Domain;
+				history.Expiration = c.NotAfter;
+				history.Action = AppendCertificateNotice(ref message, ref notify, now, c.NoticeName(), c.NotBefore, c.NotAfter, c.Thumbprint);
+				session.Entries.Add(history);
 			}
+
+			historyDocument.Add(session);
+			if (saveHistory)
+			{
+				try
+				{
+					historyDocument.Save(AppHistoryFile);
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine(ex.Message + nl + ex.StackTrace);
+				}
+			}
+
+			//foreach (KeyValuePair<string, HistorySession> entry in historyDocument.HistoryList)
+			//{
+			//	if (entry.Value == null)
+			//	{
+			//		continue;
+			//	}
+			//	foreach (HistoryModel item in entry.Value.Entries)
+			//	{
+			//		Console.WriteLine(entry.Key);
+			//		Console.WriteLine(entry.Value.StartedAt.ToString(DateTimeFormat));
+			//		Console.WriteLine(item.Domain);
+			//		Console.WriteLine(item.Expiration.ToString(DateTimeFormat));
+			//		Console.WriteLine(item.Action.ToString());
+			//	}
+			//}
 
 			if (notify)
 			{
@@ -222,7 +208,7 @@ namespace CertUtilNotify
 			}
 		}
 
-		static void AppendCertificateNotice(
+		static HistoryAction AppendCertificateNotice(
 			ref string message,
 			ref bool notify,
 			DateTime now,
@@ -231,24 +217,34 @@ namespace CertUtilNotify
 			DateTime notAfter,
 			string? thumbprint)
 		{
+			HistoryAction action = HistoryAction.Skipped;
 			if (notAfter < now.AddDays(DaysToWarnExpire) && notAfter > now)
 			{
 				notify = true;
+				action = HistoryAction.ExpirationNotice;
 				message = message + "-------- Expiring --------" + nl;
 				message = message + name + " expires on " + notAfter.ToString(DateFormat) + "." + nl;
 				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
 				message = message + "Thumbprint " + thumbprint + nl;
 				message = message + nl;
+
+
 			}
 
 			if (notBefore > now.AddDays(DaysToNotifyNew * -1) && notBefore < now)
 			{
+				// A certificate inside both windows keeps ExpirationNotice. That branch is what sends mail.
+				if (action == HistoryAction.Skipped)
+				{
+					action = HistoryAction.RenewalNotice;
+				}
 				message = message + "-------- New --------" + nl;
 				message = message + name + " issued on " + notBefore.ToString(DateFormat) + "." + nl;
 				message = message + (notAfter - now).TotalDays.ToString("0") + " days remaining." + nl;
 				message = message + "Thumbprint " + thumbprint + nl;
 				message = message + nl;
 			}
+			return action;
 		}
 
 		sealed class TeeTextWriter : TextWriter
