@@ -1,8 +1,8 @@
 ﻿
-using System.Net;
-using System.Net.Mail;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
+using MailKit;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
 
 namespace CertUtilNotify.Method;
 
@@ -22,35 +22,24 @@ class EmailService
 	{
 		try
 		{
-			// Disable certificate validation
-			ServicePointManager.ServerCertificateValidationCallback = AcceptAllCertificates;
-
-			NetworkCredential credential = new NetworkCredential();
-			credential.UserName = smtpUsername;
-			credential.Password = smtpPassword;
-
-			MailAddress from = new MailAddress(fromAddress);
-
-			using MailMessage message = new MailMessage();
+			using MimeMessage message = new MimeMessage();
+			message.From.Add(MailboxAddress.Parse(fromAddress));
+			message.To.AddRange(InternetAddressList.Parse(toAddressList));
 			message.Subject = subject;
-			message.To.Add(toAddressList);
-			message.From = from;
-			message.IsBodyHtml = false;
-			message.Body = body;
+			TextPart text = new TextPart("plain");
+			text.Text = body;
+			message.Body = text;
 
 			using SmtpClient client = new SmtpClient();
 			client.Timeout = 10000; // 10 sec
-			client.UseDefaultCredentials = false;
-			client.EnableSsl = true;
-			client.Credentials = credential;
-			client.Host = smtpHost;
-			client.Port = smtpPort;
-			/*
-			Port 465: .NET SmtpClient uses "implicit SSL/TLS" and the SSL handshake must begin immediately before any SMTP command is sent.
-			Port 587: .NET SmtpClient uses "explicit SSL (STARTTLS)" by default unless the server supports implicit TLS at connection time.
-			In other words, apparently .NET SmtpClient does not support implicit SSL (port 465) correctly, so use port 587 instead.
-			*/
+			// Port 465 is implicit TLS. Port 587 and the other submission ports use STARTTLS.
+			SecureSocketOptions options = smtpPort == 465
+				? SecureSocketOptions.SslOnConnect
+				: SecureSocketOptions.StartTls;
+			client.Connect(smtpHost, smtpPort, options);
+			client.Authenticate(smtpUsername, smtpPassword);
 			client.Send(message);
+			client.Disconnect(true);
 
 			Console.WriteLine("SMTP success.");
 		}
@@ -58,23 +47,5 @@ class EmailService
 		{
 			Console.WriteLine("SMTP error: " + ex.Message + Program.nl + ex.StackTrace);
 		}
-		finally
-		{
-			{
-				// Re-enable vertificate validation
-				ServicePointManager.ServerCertificateValidationCallback = null;
-			}
-		}
-	}
-
-	bool AcceptAllCertificates
-		(
-		object sender,
-		X509Certificate certificate,
-		X509Chain chain,
-		SslPolicyErrors sslPolicyErrors
-		)
-	{
-		return true;
 	}
 }
