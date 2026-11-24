@@ -3,7 +3,6 @@ using CertUtilNotify.Model;
 using Microsoft.Extensions.Configuration;
 using System.Text;
 using System.Text.Json;
-using Windows.Media.Capture;
 
 namespace CertUtilNotify
 {
@@ -26,11 +25,11 @@ namespace CertUtilNotify
 		public static int DaysToNotifyNew;
 		public static string EmailSubject;
 		public static string ToAddressList;
+		public static string SMTP_Host;
+		public static int SMTP_Port;
 		public static string FromAddress;
 		public static string SMTP_Username;
 		public static string SMTP_Password;
-		public static string SMTP_Host;
-		public static int SMTP_Port;
 
 		[STAThread]
 		static void Main()
@@ -75,11 +74,11 @@ namespace CertUtilNotify
 					DaysToNotifyNew = int.Parse(AppSettings.GetSection("DaysToNotifyNew").Value);
 					EmailSubject = AppSettings.GetSection("EmailSubject").Value;
 					ToAddressList = AppSettings.GetSection("ToAddressList").Value;
+					SMTP_Host = AppSettings.GetSection("SMTP_Host").Value;
+					SMTP_Port = int.Parse(AppSettings.GetSection("SMTP_Port").Value);
 					FromAddress = AppSettings.GetSection("FromAddress").Value;
 					SMTP_Username = AppSettings.GetSection("SMTP_Username").Value;
 					SMTP_Password = AppSettings.GetSection("SMTP_Password").Value;
-					SMTP_Host = AppSettings.GetSection("SMTP_Host").Value;
-					SMTP_Port = int.Parse(AppSettings.GetSection("SMTP_Port").Value);
 				}
 				catch (Exception ex)
 				{
@@ -110,6 +109,7 @@ namespace CertUtilNotify
 				}
 			}
 
+			Console.WriteLine(string.Concat("Populating Dictionary<HistoryListModel>"));
 			HistoryListModel historyDocument;
 			bool saveHistory = true;
 			try
@@ -175,11 +175,11 @@ namespace CertUtilNotify
 				emailService.SendEmail(
 					subject: EmailSubject + " " + now.ToString(DateFormat),
 					toAddressList: ToAddressList,
+					smtpHost: SMTP_Host,
+					smtpPort: SMTP_Port,
 					fromAddress: FromAddress,
 					smtpUsername: SMTP_Username,
 					smtpPassword: SMTP_Password,
-					smtpHost: SMTP_Host,
-					smtpPort: SMTP_Port,
 					body: message
 				);
 			}

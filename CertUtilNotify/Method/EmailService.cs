@@ -12,11 +12,11 @@ class EmailService
 		(
 			string subject,
 			string toAddressList,
+			string smtpHost,
+			int smtpPort,
 			string fromAddress,
 			string smtpUsername,
 			string smtpPassword,
-			string smtpHost,
-			int smtpPort,
 			string body
 		)
 	{

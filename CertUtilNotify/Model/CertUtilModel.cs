@@ -15,7 +15,7 @@ namespace CertUtilNotify.Model
 				{
 					if (certUtilTextStartLine > -1) // Don't try to parse until after finding the first certificate
 					{
-						certUtilTextSet.Add(ParseLines(certUtilTextLines));
+						AddParsedCertificate(certUtilTextLines, certUtilTextSet);
 					}
 					certUtilTextStartLine = i;
 					certUtilTextLines.Clear();
@@ -25,9 +25,22 @@ namespace CertUtilNotify.Model
 
 			if (certUtilTextStartLine > -1)
 			{
-				certUtilTextSet.Add(ParseLines(certUtilTextLines)); // Parse the last cert after the final loop
+				AddParsedCertificate(certUtilTextLines, certUtilTextSet); // Parse the last cert after the final loop
 			}
 			return certUtilTextSet;
+		}
+
+		void AddParsedCertificate(List<string> lines, HashSet<CertUtilModel> certs)
+		{
+			try
+			{
+				certs.Add(ParseLines(lines));
+			}
+			catch (Exception ex)
+			{
+				string banner = lines.Count > 0 ? lines[0].Trim() : "certificate";
+				Console.WriteLine("Could not read " + banner + ": " + ex.Message);
+			}
 		}
 
 		CertUtilModel ParseLines(List<string> lines)
@@ -134,7 +147,15 @@ namespace CertUtilNotify.Model
 
 							break;
 						case string e when e.Trim().StartsWith("Cert Hash("):
-							cert.Thumbprint = lines[i].Replace("Cert Hash(", "(").Trim();
+							if (cert.Thumbprint == null)
+							{
+								string hashLine = lines[i].Trim();
+								int colon = hashLine.IndexOf(':');
+								if (colon >= 0)
+								{
+									cert.Thumbprint = hashLine.Substring(colon + 1).Trim();
+								}
+							}
 							break;
 						case string e when e.Trim().StartsWith("Key Container ="):
 							cert.KeyContainer = lines[i].Replace("Key Container =", "").Trim();
